@@ -11,12 +11,14 @@ python -m pip install -r autolabel/modules/generation/requirements.txt
 
 ## Environment
 
-Do not hardcode API keys. Configure keys through environment variables:
+Do not hardcode API keys. The CLI automatically loads `.env` from the repository root and `autolabel/modules/generation/.env` before reading environment variables. Current shell exports still take precedence over `.env` values.
+
+Create a local `.env` file, which is ignored by git:
 
 ```bash
 DASHSCOPE_API_KEY=your_api_key_here
-QWEN_VLM_MODEL=qwen3.6-plus
-WAN_IMAGE_MODEL=wan2.7-image-pro
+QWEN_VLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_WAN_ENDPOINT=https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
 ```
 
 If live Wan editing is unavailable, use `--dry-run` to validate grid generation, dummy Qwen selection, local synthetic edit, diff localization, mask/crop writing, metadata construction, and RequiredFieldsV1 validation.

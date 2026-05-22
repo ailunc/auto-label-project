@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from autolabel.modules.generation.env_loader import load_env_files
 from autolabel.modules.generation.grid import expand_bbox, grid_id_to_bbox
 from autolabel.modules.generation.main import main as vlm_wan_main
 from autolabel.modules.generation.prompts import build_negative_prompt, build_qwen_grid_prompt, build_wan_edit_prompt
@@ -42,6 +44,24 @@ class VLMWanAutoLabelTests(unittest.TestCase):
         self.assertTrue(selection.raw_response["fallback"])
         self.assertIn("simulated timeout", selection.raw_response["fallback_reason"])
         self.assertEqual(len(selection.candidate_grids), 3)
+
+    def test_env_loader_reads_dotenv_without_overriding_existing_env(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text(
+                "DASHSCOPE_API_KEY=file-key\n"
+                "QWEN_VLM_BASE_URL=https://example.test/v1\n"
+                "export DASHSCOPE_WAN_ENDPOINT='https://wan.example.test/generation'\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict("os.environ", {"DASHSCOPE_API_KEY": "shell-key"}, clear=True):
+                loaded = load_env_files([env_path])
+                import os
+
+                self.assertEqual(loaded, [env_path])
+                self.assertEqual(os.environ["DASHSCOPE_API_KEY"], "shell-key")
+                self.assertEqual(os.environ["QWEN_VLM_BASE_URL"], "https://example.test/v1")
+                self.assertEqual(os.environ["DASHSCOPE_WAN_ENDPOINT"], "https://wan.example.test/generation")
 
     def test_dry_run_writes_valid_metadata_with_diff_mask(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

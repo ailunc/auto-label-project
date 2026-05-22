@@ -18,6 +18,7 @@ if __package__ in (None, ""):
     from autolabel.modules.generation.config import normalize_task_row, positive_float, positive_int, prepare_output_paths, resolve_task_image_path
     from autolabel.modules.generation.cropper import crop_with_expand
     from autolabel.modules.generation.diff_localizer import LocalizationThresholds, localize_difference
+    from autolabel.modules.generation.env_loader import load_env_files
     from autolabel.modules.generation.exporter_labelstudio import export_metadata_dir
     from autolabel.modules.generation.grid import bbox_to_dict, expand_bbox, fine_grid_id_to_bbox, grid_id_to_bbox, make_fine_grid_preview, make_grid_preview
     from autolabel.modules.generation.metadata_builder import build_autolabel_sample
@@ -31,6 +32,7 @@ else:
     from .config import normalize_task_row, positive_float, positive_int, prepare_output_paths, resolve_task_image_path
     from .cropper import crop_with_expand
     from .diff_localizer import LocalizationThresholds, localize_difference
+    from .env_loader import load_env_files
     from .exporter_labelstudio import export_metadata_dir
     from .grid import bbox_to_dict, expand_bbox, fine_grid_id_to_bbox, grid_id_to_bbox, make_fine_grid_preview, make_grid_preview
     from .metadata_builder import build_autolabel_sample
@@ -87,6 +89,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def run_pipeline(args: argparse.Namespace) -> int:
+    load_env_files()
     outputs = prepare_output_paths(args.output_root)
     logger = JsonlLogger(outputs.logs / f"run_{now_iso_shanghai().replace(':', '').replace('-', '').replace('+', '_')}.jsonl")
     qwen = QwenVLMClient(
