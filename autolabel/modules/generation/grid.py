@@ -129,3 +129,30 @@ def bbox_to_dict(bbox: BBox) -> dict[str, int | str]:
 def bbox_area(bbox: BBox) -> int:
     x1, y1, x2, y2 = bbox
     return max(0, x2 - x1) * max(0, y2 - y1)
+
+
+def bbox_intersection_area(first: BBox, second: BBox) -> int:
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+    return max(0, x2 - x1) * max(0, y2 - y1)
+
+
+def grid_ids_overlapping_bboxes(
+    image_width: int,
+    image_height: int,
+    grid_layout: str,
+    bboxes: Iterable[BBox],
+    min_overlap_ratio: float = 0.0,
+) -> list[str]:
+    blocked: list[str] = []
+    for grid in grid_ids(grid_layout):
+        grid_bbox = grid_id_to_bbox(grid, image_width, image_height, grid_layout)
+        grid_area = max(1, bbox_area(grid_bbox))
+        for bbox in bboxes:
+            overlap = bbox_intersection_area(grid_bbox, bbox)
+            if overlap > 0 and (overlap / grid_area) >= min_overlap_ratio:
+                blocked.append(grid)
+                break
+    return blocked

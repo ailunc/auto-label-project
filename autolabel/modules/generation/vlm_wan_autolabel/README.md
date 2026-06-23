@@ -8,9 +8,9 @@ It should still be run and changed as an isolated generation module; avoid modif
 ```text
 normal industrial image
   -> 4x4 grid preview for Qwen VLM only
-  -> Qwen3.6-Plus selects top-3 candidate grid cells
-  -> optional local 3x3 refinement
-  -> grid cell becomes expanded_edit_bbox
+  -> Qwen3.6-Plus selects top3 coarse candidate grid cells outside timestamp/site-label overlay regions
+  -> no local 3x3 refinement by default
+  -> top3 coarse grids become expanded_edit_bbox candidates
   -> Wan2.7-Image-Pro edits the clean original image with bbox_list
   -> original/generated ROI difference creates mask and final_bbox
   -> anomaly crop is saved
@@ -20,6 +20,7 @@ normal industrial image
 ```
 
 Wan input is always the clean original image, never the grid preview. Final `objects[].box` comes from diff localization, not from the grid bbox or expanded edit bbox.
+Fine grid remains available only as an explicit compatibility option; the production default is top3 coarse-grid generation.
 
 ## Install
 
@@ -60,6 +61,8 @@ coolant_leak
 water_leak
 ```
 
+`water_leakage` is accepted as an input alias and normalized to `water_leak`.
+
 Optional columns include `collection_batch,site,building,floor,room_name,room_type,severity_level`.
 Defaults: `source_type=generated`, `severity_level=early`, `room_type=generator_room`.
 
@@ -74,10 +77,17 @@ python -m autolabel.modules.generation.main \
   --output-root data/processed \
   --vlm-model qwen3.6-plus \
   --image-model wan2.7-image-pro \
+  --mode balanced \
   --grid-layout 4x4 \
   --edit-bbox-expand-ratio 0.20 \
   --crop-expand-ratio 0.10 \
-  --num-generations-per-candidate 1
+  --num-generations-per-candidate 1 \
+  --candidate-grid-count 3 \
+  --max-candidate-grids 3 \
+  --sensitive-top-left-ratio 0.30,0.12 \
+  --sensitive-bottom-right-ratio 0.42,0.12 \
+  --workers 4 \
+  --benchmark
 ```
 
 From this module folder:
@@ -89,10 +99,13 @@ python src/main.py \
   --output-root data/processed \
   --vlm-model qwen3.6-plus \
   --image-model wan2.7-image-pro \
+  --mode balanced \
   --grid-layout 4x4 \
   --edit-bbox-expand-ratio 0.20 \
   --crop-expand-ratio 0.10 \
-  --num-generations-per-candidate 1
+  --num-generations-per-candidate 1 \
+  --candidate-grid-count 3 \
+  --max-candidate-grids 3
 ```
 
 Offline validation:
@@ -103,6 +116,7 @@ python src/main.py \
   --image-root data/images \
   --output-root data/processed \
   --dry-run \
+  --benchmark \
   --export-labelstudio
 ```
 
@@ -113,7 +127,17 @@ Optional flags:
 --enable-vlm-review
 --export-labelstudio
 --dry-run
+--mode speed|balanced|quality
+--candidate-grid-count 3
 --max-candidate-grids 3
+--sensitive-top-left-ratio 0.30,0.12
+--sensitive-bottom-right-ratio 0.42,0.12
+--candidate-strategy sequential|speculative
+--vlm-concurrency 2
+--wan-submit-concurrency 4
+--wan-poll-concurrency 8
+--download-concurrency 8
+--benchmark
 --severity-level early
 ```
 

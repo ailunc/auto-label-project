@@ -80,9 +80,27 @@ class VLMWanAutoLabelGenerationModule:
             "--num-generations-per-candidate",
             str(generation_cfg.get("num_generations_per_candidate", 1)),
             "--max-candidate-grids",
-            str(generation_cfg.get("max_candidate_grids", 3)),
+            str(generation_cfg.get("max_candidate_grids", 9)),
+            "--candidate-grid-count",
+            str(generation_cfg.get("candidate_grid_count", generation_cfg.get("topk_coarse_grids", 9))),
+            "--mode",
+            str(generation_cfg.get("mode", "balanced")),
             "--severity-level",
             str(generation_cfg.get("severity_level", "early")),
+            "--workers",
+            str(generation_cfg.get("workers", 4)),
+            "--vlm-concurrency",
+            str(generation_cfg.get("vlm_concurrency", 2)),
+            "--wan-submit-concurrency",
+            str(generation_cfg.get("wan_submit_concurrency", 4)),
+            "--wan-poll-concurrency",
+            str(generation_cfg.get("wan_poll_concurrency", 8)),
+            "--download-concurrency",
+            str(generation_cfg.get("download_concurrency", 8)),
+            "--candidate-strategy",
+            str(generation_cfg.get("candidate_strategy", "sequential")),
+            "--speculative-top-k",
+            str(generation_cfg.get("speculative_top_k", 2)),
         ]
         if dry_run or bool(generation_cfg.get("dry_run", False)):
             cmd.append("--dry-run")
@@ -96,6 +114,12 @@ class VLMWanAutoLabelGenerationModule:
             cmd.append("--enable-vlm-review")
         if bool(generation_cfg.get("export_labelstudio", False)):
             cmd.append("--export-labelstudio")
+        if bool(generation_cfg.get("benchmark", False)):
+            cmd.append("--benchmark")
+        if bool(generation_cfg.get("reuse_vlm_cache", False)):
+            cmd.append("--reuse-vlm-cache")
+        if bool(generation_cfg.get("refresh_vlm_cache", False)):
+            cmd.append("--refresh-vlm-cache")
 
         subprocess_env = os.environ.copy()
         subprocess_env.update({key: value for key, value in runtime.get("env", {}).items() if value not in ("", None)})

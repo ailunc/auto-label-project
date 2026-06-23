@@ -56,7 +56,7 @@ def passes_quality(
     min_visibility_score: float = 0.12,
 ) -> tuple[bool, str | None]:
     if background_score < min_background_score:
-        return False, f"background_preservation_score too low: {background_score:.3f} < {min_background_score:.3f}"
+        return False, f"background_changed_too_much: {background_score:.3f} < {min_background_score:.3f}"
     if visibility_score < min_visibility_score:
-        return False, f"anomaly_visibility_score too low: {visibility_score:.3f} < {min_visibility_score:.3f}"
+        return False, f"no_visible_change: {visibility_score:.3f} < {min_visibility_score:.3f}"
     return True, None

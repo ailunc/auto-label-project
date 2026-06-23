@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from PIL import Image, ImageChops
 
@@ -21,6 +21,12 @@ class LocalizationThresholds:
     def for_anomaly(cls, anomaly_type: str) -> "LocalizationThresholds":
         if anomaly_type == "oil_leak":
             return cls(min_bbox_area_ratio=0.00005, min_roi_change_ratio=0.0002, min_threshold=14)
+        if anomaly_type in {"water_leak", "water_leakage"}:
+            return cls(min_bbox_area_ratio=0.00002, min_roi_change_ratio=0.00012, min_threshold=7, max_bbox_area_ratio=0.10)
+        if anomaly_type == "coolant_leak":
+            return cls(min_bbox_area_ratio=0.00003, min_roi_change_ratio=0.00016, min_threshold=9, max_bbox_area_ratio=0.10)
+        if anomaly_type == "diesel_leak":
+            return cls(min_bbox_area_ratio=0.00003, min_roi_change_ratio=0.00018, min_threshold=10)
         return cls()
 
 
@@ -29,7 +35,7 @@ class LocalizationResult:
     success: bool
     final_bbox: BBox | None
     mask_path: Path | None
-    metrics: dict[str, float | int | str | list[int]]
+    metrics: dict[str, Any]
     reason: str | None = None
 
 
@@ -57,64 +63,65 @@ def localize_difference(
     original_roi = original.crop(roi)
     generated_roi = generated.crop(roi)
     diff = ImageChops.difference(original_roi, generated_roi).convert("RGB")
-    diff_bytes = diff.tobytes()
-    diff_values = [max(diff_bytes[idx], diff_bytes[idx + 1], diff_bytes[idx + 2]) for idx in range(0, len(diff_bytes), 3)]
-    threshold = max(thresholds.min_threshold, _otsu_threshold(diff_values))
-    binary = _values_to_binary(diff_values, diff.width, diff.height, threshold)
-    binary = _close(binary)
-    binary = _dilate(binary)
-
-    components = _connected_components(binary, diff_values, diff.width, diff.height)
-    changed_pixels = sum(1 for value in diff_values if value >= threshold)
-    roi_change_ratio = changed_pixels / roi_area
-    global_change_ratio = changed_pixels / image_area
-    if roi_change_ratio < thresholds.min_roi_change_ratio:
-        return LocalizationResult(
-            False,
-            None,
-            None,
-            {"threshold": threshold, "roi_change_ratio": roi_change_ratio, "global_change_ratio": global_change_ratio},
-            "ROI change ratio is too low",
-        )
-    if global_change_ratio > thresholds.max_global_change_ratio:
-        return LocalizationResult(
-            False,
-            None,
-            None,
-            {"threshold": threshold, "roi_change_ratio": roi_change_ratio, "global_change_ratio": global_change_ratio},
-            "Global change ratio is too high",
-        )
-
+    diff_values = _combined_diff_values(original_roi, generated_roi, diff)
+    otsu = _otsu_threshold(diff_values)
+    threshold_candidates = _threshold_ladder(otsu, thresholds.min_threshold)
+    attempts: list[dict[str, float | int]] = []
+    selected: dict[str, object] | None = None
+    selected_threshold = threshold_candidates[0]
+    selected_ratio = 0.0
+    selected_global_ratio = 0.0
+    selected_component_count = 0
     min_bbox_area = thresholds.min_bbox_area_ratio * image_area
     max_bbox_area = thresholds.max_bbox_area_ratio * image_area
-    valid_components = []
-    for component in components:
-        local_bbox = component["bbox"]
-        full_bbox = (
-            roi[0] + local_bbox[0],
-            roi[1] + local_bbox[1],
-            roi[0] + local_bbox[2],
-            roi[1] + local_bbox[3],
-        )
-        full_area = bbox_area(full_bbox)
-        if min_bbox_area <= full_area <= max_bbox_area:
-            valid_components.append({**component, "full_bbox": full_bbox, "full_bbox_area": full_area})
 
-    if not valid_components:
-        return LocalizationResult(
-            False,
-            None,
-            None,
+    for threshold in threshold_candidates:
+        binary = _values_to_binary(diff_values, diff.width, diff.height, threshold)
+        binary = _open(_close(binary))
+        binary = _dilate(binary)
+        components = _connected_components(binary, diff_values, diff.width, diff.height)
+        changed_pixels = sum(1 for value in diff_values if value >= threshold)
+        roi_change_ratio = changed_pixels / roi_area
+        global_change_ratio = changed_pixels / image_area
+        attempts.append(
             {
-                "threshold": threshold,
-                "roi_change_ratio": roi_change_ratio,
-                "global_change_ratio": global_change_ratio,
-                "component_count": len(components),
-            },
-            "No valid connected component found in ROI",
+                "threshold": int(threshold),
+                "roi_change_ratio": float(roi_change_ratio),
+                "global_change_ratio": float(global_change_ratio),
+                "component_count": int(len(components)),
+            }
         )
+        if roi_change_ratio < thresholds.min_roi_change_ratio or global_change_ratio > thresholds.max_global_change_ratio:
+            continue
+        valid_components = []
+        for component in components:
+            local_bbox = component["bbox"]
+            full_bbox = (
+                roi[0] + local_bbox[0],
+                roi[1] + local_bbox[1],
+                roi[0] + local_bbox[2],
+                roi[1] + local_bbox[3],
+            )
+            full_area = bbox_area(full_bbox)
+            if min_bbox_area <= full_area <= max_bbox_area:
+                valid_components.append({**component, "full_bbox": full_bbox, "full_bbox_area": full_area})
+        if not valid_components:
+            continue
+        selected = _merge_components_if_reasonable(valid_components, image_area, max_bbox_area)
+        selected_threshold = threshold
+        selected_ratio = roi_change_ratio
+        selected_global_ratio = global_change_ratio
+        selected_component_count = len(components)
+        break
 
-    selected = _merge_components_if_reasonable(valid_components, image_area, max_bbox_area)
+    if selected is None:
+        reason = "No valid connected component found in ROI"
+        if attempts and all(float(item["roi_change_ratio"]) < thresholds.min_roi_change_ratio for item in attempts):
+            reason = "ROI change ratio is too low"
+        if attempts and any(float(item["global_change_ratio"]) > thresholds.max_global_change_ratio for item in attempts):
+            reason = "Global change ratio is too high"
+        return LocalizationResult(False, None, None, {"threshold_attempts": attempts, "otsu_threshold": int(otsu)}, reason)
+
     final_bbox = clip_bbox(selected["full_bbox"], width, height)
     selected_points = selected["points"]
     mask_output = Path(mask_output_path)
@@ -127,10 +134,12 @@ def localize_difference(
 
     mean_diff = selected["diff_sum"] / max(1, selected["area"])
     metrics: dict[str, float | int | str | list[int]] = {
-        "threshold": int(threshold),
-        "roi_change_ratio": float(roi_change_ratio),
-        "global_change_ratio": float(global_change_ratio),
-        "component_count": int(len(components)),
+        "threshold": int(selected_threshold),
+        "threshold_attempts": attempts,  # type: ignore[dict-item]
+        "otsu_threshold": int(otsu),
+        "roi_change_ratio": float(selected_ratio),
+        "global_change_ratio": float(selected_global_ratio),
+        "component_count": int(selected_component_count),
         "selected_component_area": int(selected["area"]),
         "bbox_area_ratio": float(bbox_area(final_bbox) / image_area),
         "mean_diff_in_mask": float(mean_diff),
@@ -208,6 +217,41 @@ def _erode(binary: list[list[bool]]) -> list[list[bool]]:
 
 def _close(binary: list[list[bool]]) -> list[list[bool]]:
     return _erode(_dilate(binary))
+
+
+def _open(binary: list[list[bool]]) -> list[list[bool]]:
+    return _dilate(_erode(binary))
+
+
+def _threshold_ladder(otsu_threshold: int, min_threshold: int) -> list[int]:
+    candidates = [
+        max(min_threshold, otsu_threshold),
+        max(min_threshold, int(otsu_threshold * 0.78)),
+        max(min_threshold, int(otsu_threshold * 0.58)),
+        min_threshold,
+        max(4, min_threshold - 3),
+    ]
+    result: list[int] = []
+    for value in candidates:
+        value = int(max(1, min(255, value)))
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _combined_diff_values(original_roi: Image.Image, generated_roi: Image.Image, rgb_diff: Image.Image) -> list[int]:
+    rgb_bytes = rgb_diff.tobytes()
+    lum_diff = ImageChops.difference(original_roi.convert("L"), generated_roi.convert("L")).tobytes()
+    sat_diff = ImageChops.difference(original_roi.convert("HSV").split()[1], generated_roi.convert("HSV").split()[1]).tobytes()
+    values: list[int] = []
+    for idx in range(0, len(rgb_bytes), 3):
+        pixel_index = idx // 3
+        rgb_value = max(rgb_bytes[idx], rgb_bytes[idx + 1], rgb_bytes[idx + 2])
+        lum_value = lum_diff[pixel_index]
+        sat_value = sat_diff[pixel_index]
+        # Transparent water often appears as a luminance/highlight shift with weak chroma change.
+        values.append(max(rgb_value, int(lum_value * 1.20), int(sat_value * 0.80)))
+    return values
 
 
 def _connected_components(binary: list[list[bool]], diff_values: list[int], width: int, height: int) -> list[dict[str, object]]:

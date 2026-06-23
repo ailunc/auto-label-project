@@ -5,7 +5,8 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-SUPPORTED_ANOMALY_TYPES = {"diesel_leak", "oil_leak", "coolant_leak", "water_leak"}
+SUPPORTED_ANOMALY_TYPES = {"diesel_leak", "oil_leak", "coolant_leak", "water_leak", "water_leakage"}
+ANOMALY_TYPE_ALIASES = {"water_leakage": "water_leak"}
 SUPPORTED_SEVERITY_LEVELS = {"early", "moderate", "obvious_but_controlled"}
 
 
@@ -95,6 +96,7 @@ def normalize_task_row(row: dict[str, Any], index: int) -> dict[str, Any]:
             f"Unsupported anomaly_type for {task_id}: {anomaly_type}. "
             f"Allowed: {sorted(SUPPORTED_ANOMALY_TYPES)}"
         )
+    normalized["anomaly_type"] = ANOMALY_TYPE_ALIASES.get(str(anomaly_type), str(anomaly_type))
     return normalized
 
 
